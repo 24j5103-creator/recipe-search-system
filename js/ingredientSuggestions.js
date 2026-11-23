@@ -7,6 +7,12 @@ import {
 // 一度に出す候補の数（スマホでキーボードに隠れにくい数にする）
 const MAX_SUGGESTIONS = 6;
 
+// 候補を上に出すとき、画面からはみ出す分を減らしても残す最低の件数
+const MIN_SUGGESTIONS_ABOVE = 3;
+
+// パソコン（マウス操作）の画面か。CSSの同じ条件で、候補を上に出す見た目にしている
+const prefersAbove = window.matchMedia("(hover: hover) and (pointer: fine)");
+
 // 検索欄に入力候補をつなぐ
 // input：検索欄、listbox：候補を入れる ul、liveRegion：読み上げ用の領域
 // recipeSearch：RecipeSearch（読み込み後のもの）
@@ -113,10 +119,43 @@ export function setupIngredientSuggestions({
 
         listbox.replaceChildren(...items);
         listbox.hidden = false;
+        placeListbox();
+
         input.setAttribute("aria-expanded", "true");
         input.removeAttribute("aria-activedescendant");
 
         announce(suggestions.length);
+    }
+
+    // 候補を出す位置を決める
+    // パソコンでは、IMEの予測変換の窓（入力位置のすぐ下に出る）と重ならないよう上に出す
+    // 上が狭くて画面からはみ出すときは候補を減らし、3件も入らなければ下に出す
+    function placeListbox() {
+        listbox.classList.remove("is-above");
+
+        if (!prefersAbove.matches) {
+            return;
+        }
+
+        listbox.classList.add("is-above");
+
+        // 下に出し直すときに全部の候補へ戻せるよう、減らす前を覚えておく
+        const allSuggestions = [...suggestions];
+        const allItems = [...listbox.children];
+
+        while (
+            listbox.getBoundingClientRect().top < 0
+            && suggestions.length > MIN_SUGGESTIONS_ABOVE
+        ) {
+            suggestions.pop();
+            listbox.lastElementChild.remove();
+        }
+
+        if (listbox.getBoundingClientRect().top < 0) {
+            suggestions = allSuggestions;
+            listbox.replaceChildren(...allItems);
+            listbox.classList.remove("is-above");
+        }
     }
 
     // 候補を選び、最後の食材だけを置きかえる
