@@ -4,6 +4,24 @@ export function isKatakanaName(text) {
     return /^[ァ-ヶー]+$/.test(text);
 }
 
+// 検索結果の並び順を決める
+// 1. 入力した食材を多く使う料理ほど前
+// 2. 同じ数なら、先に入力した食材を使う料理を前（使う食材の番号を前から比べる）
+// 3. それでも同じなら、見つけた順（＝CSVの順。追加したレシピは後ろ）
+function compareCandidates(a, b) {
+    if (a.matchedIndexes.length !== b.matchedIndexes.length) {
+        return b.matchedIndexes.length - a.matchedIndexes.length;
+    }
+
+    for (let i = 0; i < a.matchedIndexes.length; i++) {
+        if (a.matchedIndexes[i] !== b.matchedIndexes[i]) {
+            return a.matchedIndexes[i] - b.matchedIndexes[i];
+        }
+    }
+
+    return a.foundOrder - b.foundOrder;
+}
+
 export class RecipeSearch {
 
     constructor(recipes) {
@@ -27,6 +45,55 @@ export class RecipeSearch {
 
         // 内部の配列が外部で変更されないよう、コピーを返す
         return [...result];
+    }
+
+    // 食材名が登録されているか（CSVか追加データに1件以上あるか）
+    hasIngredient(ingredientName) {
+        return this.recipes.has(ingredientName);
+    }
+
+    // 複数の食材名から料理を探し、関連性の高い順に並べて返す
+    // ingredientNames は入力した順の食材名の配列（重複なし・確認済み）を想定する
+    // 戻り値：{ total: 候補の総数, results: [{ recipeName, matchedIngredients }] }
+    searchByIngredients(ingredientNames, limit) {
+        // 料理名 → { 使う食材の番号（入力順）, 見つけた順 }
+        const candidates = new Map();
+        let foundOrder = 0;
+
+        ingredientNames.forEach((ingredientName, ingredientIndex) => {
+            const recipeNames = this.recipes.get(ingredientName);
+
+            if (!recipeNames) {
+                return;
+            }
+
+            for (const recipeName of recipeNames) {
+                if (!candidates.has(recipeName)) {
+                    candidates.set(recipeName, {
+                        recipeName: recipeName,
+                        matchedIndexes: [],
+                        foundOrder: foundOrder
+                    });
+                    foundOrder++;
+                }
+
+                candidates.get(recipeName).matchedIndexes.push(ingredientIndex);
+            }
+        });
+
+        const sorted = [...candidates.values()].sort(compareCandidates);
+
+        const results = sorted.slice(0, limit).map(candidate => ({
+            recipeName: candidate.recipeName,
+            matchedIngredients: candidate.matchedIndexes.map(
+                index => ingredientNames[index]
+            )
+        }));
+
+        return {
+            total: candidates.size,
+            results: results
+        };
     }
 
     // 入力を確認し、新しく追加するデータを作る

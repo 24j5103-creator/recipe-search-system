@@ -156,6 +156,7 @@ input:disabled {
 #result-message {
     margin: 0 0 12px;
     overflow-wrap: anywhere;
+    white-space: pre-line;
 }
 
 #recipe-list {
@@ -172,6 +173,13 @@ input:disabled {
     border-radius: 6px;
     background-color: #f0f6f1;
     overflow-wrap: anywhere;
+}
+
+/* 料理名の下に出す「使う食材」 */
+#recipe-list .matched-ingredients {
+    margin: 4px 0 0;
+    color: #526057;
+    font-size: 0.85rem;
 }
 
 /* 追加画面を開くボタン */
