@@ -7,6 +7,9 @@ import {
 // 一度に出す候補の数（スマホでキーボードに隠れにくい数にする）
 const MAX_SUGGESTIONS = 6;
 
+// 指をずらして離したときに、スクロールやドラッグと区別する
+const TAP_MOVE_LIMIT = 12;
+
 // 候補を上に出すとき、画面からはみ出す分を減らしても残す最低の件数
 const MIN_SUGGESTIONS_ABOVE = 3;
 
@@ -32,8 +35,10 @@ export function setupIngredientSuggestions({
     // 今表示している候補の中身（同じなら一覧を作り直さないため）
     let shownKey = "";
 
-    // 指やマウスで押した候補（押してから離すまでに一覧が変わっても選べるようにする）
+    // マウスで押した候補（押してから離すまでに一覧が変わっても選べるようにする）
     let pressedSuggestion = null;
+    let touchPress = null;
+    let selectionAfterBlur = null;
 
     // 候補の中身を比べるための文字列にする
     function suggestionKey(list) {
@@ -65,6 +70,8 @@ export function setupIngredientSuggestions({
         suggestions = [];
         shownKey = "";
         activeIndex = -1;
+        pressedSuggestion = null;
+        touchPress = null;
 
         listbox.replaceChildren();
         listbox.hidden = true;
@@ -95,6 +102,11 @@ export function setupIngredientSuggestions({
 
     // 入力内容から候補を作り直して表示する
     function update() {
+        // タップの途中で変換が終わっても、指の下にある候補を保つ
+        if (touchPress !== null) {
+            return;
+        }
+
         const { before, last } = splitLastIngredient(input.value);
 
         // すでに入れた食材は候補に出さない（ひらがなで入れた分もカタカナで比べる）
@@ -107,8 +119,6 @@ export function setupIngredientSuggestions({
         );
 
         // 候補が前と同じなら作り直さない
-        // スマホでは、変換中に候補をタップすると指が触れた瞬間に変換が確定して input が起きる。
-        // ここで一覧を作り直すと、指を離したときには別の要素に置きかわっていて click が起きない
         const nextKey = suggestionKey(nextSuggestions);
 
         if (!listbox.hidden && nextKey === shownKey) {
@@ -185,24 +195,28 @@ export function setupIngredientSuggestions({
         }
     }
 
-    // 候補を選び、最後の食材だけを置きかえる
-    // suggestion：選んだ候補（{ ingredientName, recipeCount }）
-    function choose(suggestion) {
-        if (!suggestion) {
+    // 最後の食材だけを置きかえるときの値を作る
+    function selectedValue(suggestion) {
+        const { before } = splitLastIngredient(input.value);
+        return before + suggestion.ingredientName;
+    }
+
+    function choose(value, finishTouchComposition = false) {
+        close();
+
+        if (finishTouchComposition) {
+            // 次に検索欄を開くまではフォーカスを戻さず、遅れて届く変換確定にも備える
+            selectionAfterBlur = value;
+            input.blur();
+            input.value = value;
             return;
         }
 
-        // IMEで変換中（未確定）のまま値を書きかえると、スマホのIMEが
-        // 変換中だった文字（例：「はむ」）を後から入れ直し、選んだ食材名が消えてしまう
-        // 先にフォーカスを外して変換を確定させてから書きかえ、あとでフォーカスを戻す
         if (composing) {
             input.blur();
         }
 
-        const { before } = splitLastIngredient(input.value);
-        input.value = before + suggestion.ingredientName;
-
-        close();
+        input.value = value;
 
         // カーソルは検索欄の最後に置く（続けて区切りと次の食材を打てるように）
         input.focus();
@@ -210,7 +224,19 @@ export function setupIngredientSuggestions({
     }
 
     // 打つたびに候補を更新する（IMEで変換中の文字にも反応する）
-    input.addEventListener("input", update);
+    input.addEventListener("input", () => {
+        if (selectionAfterBlur !== null) {
+            // フォーカスを外したあとで IME が書いた文字を、選んだ候補に戻す
+            input.value = selectionAfterBlur;
+            return;
+        }
+
+        update();
+    });
+
+    input.addEventListener("focus", () => {
+        selectionAfterBlur = null;
+    });
 
     // IMEで変換中かどうかを覚えておく（候補を選ぶときに使う）
     input.addEventListener("compositionstart", () => {
@@ -244,7 +270,7 @@ export function setupIngredientSuggestions({
         } else if (event.key === "Enter" && activeIndex !== -1) {
             // 候補を選んでいるときだけ、検索ではなく候補を選ぶ
             event.preventDefault();
-            choose(suggestions[activeIndex]);
+            choose(selectedValue(suggestions[activeIndex]));
         } else if (event.key === "Escape") {
             event.preventDefault();
             close();
@@ -255,23 +281,59 @@ export function setupIngredientSuggestions({
     // フォーカスが外れると変換は確定するので、compositionend が来ない場合に備えて変換中の印も消す
     input.addEventListener("blur", () => {
         composing = false;
-        close();
+        if (touchPress === null) {
+            close();
+        }
     });
 
-    // 候補を押した瞬間に検索欄のフォーカスが外れると、クリックが効かなくなるので防ぐ
-    // 押した候補もここで覚えておく
     listbox.addEventListener("pointerdown", event => {
-        event.preventDefault();
-
         const option = event.target.closest("[role='option']");
-        pressedSuggestion = option
-            ? suggestions[Number(option.dataset.index)] ?? null
-            : null;
+        if (!option || !event.isPrimary || event.button !== 0) {
+            return;
+        }
+
+        event.preventDefault();
+        const suggestion = suggestions[Number(option.dataset.index)];
+
+        if (event.pointerType === "touch") {
+            // 変換確定で入力値が変わる前に、選んだ候補と手前の食材を覚える
+            touchPress = {
+                pointerId: event.pointerId,
+                x: event.clientX,
+                y: event.clientY,
+                value: selectedValue(suggestion),
+                composing
+            };
+        } else {
+            pressedSuggestion = suggestion;
+        }
     });
 
-    // タップ・クリックで選ぶ
-    // 押してから離すまでに一覧が作り直されると、click は候補ではなく一覧（ul）で起きる。
-    // そのときは押したときに覚えた候補を使う
+    // 指を離す位置が一覧の外でも、タップや取り消しを処理する
+    function finishTouch(event) {
+        if (touchPress?.pointerId !== event.pointerId) {
+            return;
+        }
+
+        const press = touchPress;
+        touchPress = null;
+        const distance = Math.hypot(event.clientX - press.x, event.clientY - press.y);
+
+        if (event.type === "pointerup" && distance <= TAP_MOVE_LIMIT) {
+            const finishComposition =
+                press.composing || composing || document.activeElement !== input;
+            choose(press.value, finishComposition);
+        } else if (document.activeElement === input) {
+            update();
+        } else {
+            close();
+        }
+    }
+
+    document.addEventListener("pointerup", finishTouch, true);
+    document.addEventListener("pointercancel", finishTouch, true);
+
+    // マウスや支援技術のクリックで選ぶ
     listbox.addEventListener("click", event => {
         const option = event.target.closest("[role='option']");
         const suggestion = option
@@ -279,7 +341,9 @@ export function setupIngredientSuggestions({
             : pressedSuggestion;
 
         pressedSuggestion = null;
-        choose(suggestion);
+        if (suggestion && !listbox.hidden) {
+            choose(selectedValue(suggestion));
+        }
     });
 
     // 検索したら候補を閉じる
