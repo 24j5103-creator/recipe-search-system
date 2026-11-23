@@ -12,7 +12,8 @@
 | `css/style.css` | 見た目 |
 | `js/main.js` | 画面の操作・入力チェック（食材名は `^[ァ-ヶー]+$`） |
 | `js/recipeData.js` | CSVを `fetch` で読み、`Map<食材名, 料理名[]>` を作る |
-| `js/recipeSearch.js` | `RecipeSearch` クラス：検索・追加データの検証と反映 |
+| `js/ingredientSuggestions.js` | 検索欄の入力候補（ARIAコンボボックス：表示・↑↓/Enter/Esc・選択） |
+| `js/recipeSearch.js` | `RecipeSearch` クラス：検索・入力候補の絞り込み・追加データの検証と反映。区切り文字とひらがな→カタカナ変換もここ |
 | `js/recipeStorage.js` | 追加レシピを `localStorage`（キー `recipeWeb.additionalRecipes.v1`）に保存・復元 |
 | `data/ingredient_recipes.csv` | 元データ。1行目は必ず `食材名,料理名` |
 
