@@ -25,6 +25,26 @@ const errorMessage = document.getElementById("error-message");
 // 検索と追加で共有するオブジェクト
 let recipeSearch = null;
 
+// 一度に検索できる食材の数と、表示する料理の数
+const MAX_SEARCH_INGREDIENTS = 10;
+const MAX_SEARCH_RESULTS = 50;
+
+// 検索欄の入力を食材名の配列にする
+// 半角・全角カンマ、読点、スペース（全角を含む）で区切り、空の要素と重複を除く
+function splitIngredientNames(text) {
+    const names = text
+        .split(/[,，、\s]+/)
+        .filter(name => name !== "");
+
+    // 入力した順を保ったまま重複を除く
+    return [...new Set(names)];
+}
+
+// 食材名の配列を「『A』『B』」の形の文にする
+function quoteNames(names) {
+    return names.map(name => `「${name}」`).join("");
+}
+
 // エラーメッセージを表示する
 function showError(error) {
     errorMessage.textContent =
@@ -59,50 +79,92 @@ function displaySearchResults() {
         return;
     }
 
-    const ingredientName = searchInput.value.trim();
-
     // 前回の検索結果を消す
     recipeList.replaceChildren();
 
-    if (ingredientName === "") {
+    const ingredientNames = splitIngredientNames(searchInput.value);
+
+    if (ingredientNames.length === 0) {
         resultMessage.textContent = "食材を入力してください。";
         return;
     }
 
+    if (ingredientNames.length > MAX_SEARCH_INGREDIENTS) {
+        resultMessage.textContent =
+            `食材は${MAX_SEARCH_INGREDIENTS}個までにしてください。`
+            + `（今は${ingredientNames.length}個です）`;
+        return;
+    }
+
     // 全角カタカナ以外が含まれていれば、検索せずに案内する
-    if (!isKatakanaName(ingredientName)) {
+    const invalidNames = ingredientNames.filter(
+        name => !isKatakanaName(name)
+    );
+
+    if (invalidNames.length > 0) {
         resultMessage.textContent =
-            "食材名は全角カタカナで入力してください。";
+            `${quoteNames(invalidNames)}は全角カタカナで入力してください。`;
         return;
     }
-    
+
     // 全角カタカナなら検索する
-    const results = recipeSearch.searchRecipes(ingredientName);
-    
-    if (results.length === 0) {
+    const { total, results } = recipeSearch.searchByIngredients(
+        ingredientNames,
+        MAX_SEARCH_RESULTS
+    );
+
+    const inputLabel = `「${ingredientNames.join("・")}」`;
+
+    // 登録されていない食材は、検索に使わなかったことを知らせる
+    const unknownNames = ingredientNames.filter(
+        name => !recipeSearch.hasIngredient(name)
+    );
+
+    if (total === 0) {
         resultMessage.textContent =
-            `「${ingredientName}」に該当する料理はありません。`;
+            `${inputLabel}に該当する料理はありません。`;
         return;
     }
 
-    resultMessage.textContent =
-        `「${ingredientName}」を使う料理：${results.length}件`;
+    let message = total > MAX_SEARCH_RESULTS
+        ? `${inputLabel}を使う料理：全${total}件のうち、`
+            + `関連性の高い${results.length}件を表示`
+        : `${inputLabel}を使う料理：${total}件`;
 
-    for (const recipeName of results) {
+    if (unknownNames.length > 0) {
+        message +=
+            `\n${quoteNames(unknownNames)}は登録されていない食材のため、`
+            + "検索に使いませんでした。";
+    }
+
+    resultMessage.textContent = message;
+
+    for (const result of results) {
         const item = document.createElement("li");
         const link = document.createElement("a");
-        
+
         // 料理名を使って検索URLを作る
-        const keyword = encodeURIComponent(recipeName + " レシピ");
-        
+        const keyword = encodeURIComponent(result.recipeName + " レシピ");
+
         link.href = "https://www.google.com/search?q=" + keyword;
-        link.textContent = recipeName;
-        
+        link.textContent = result.recipeName;
+
         // 新しいタブで検索結果を開く
         link.target = "_blank";
         link.rel = "noopener noreferrer";
-        
+
         item.appendChild(link);
+
+        // 食材を複数入れたときだけ、使う食材を添える
+        if (ingredientNames.length > 1) {
+            const matched = document.createElement("p");
+            matched.className = "matched-ingredients";
+            matched.textContent =
+                `使う食材：${result.matchedIngredients.join("・")}`
+                + `（${result.matchedIngredients.length}/${ingredientNames.length}）`;
+            item.appendChild(matched);
+        }
+
         recipeList.appendChild(item);
     }
 }
