@@ -7,6 +7,12 @@ import {
 // 一度に出す候補の数（スマホでキーボードに隠れにくい数にする）
 const MAX_SUGGESTIONS = 6;
 
+// 候補を上に出すとき、画面からはみ出す分を減らしても残す最低の件数
+const MIN_SUGGESTIONS_ABOVE = 3;
+
+// パソコン（マウス操作）の画面か。CSSの同じ条件で、候補を上に出す見た目にしている
+const prefersAbove = window.matchMedia("(hover: hover) and (pointer: fine)");
+
 // 検索欄に入力候補をつなぐ
 // input：検索欄、listbox：候補を入れる ul、liveRegion：読み上げ用の領域
 // recipeSearch：RecipeSearch（読み込み後のもの）
@@ -19,6 +25,9 @@ export function setupIngredientSuggestions({
     // 今出している候補と、↑↓で選んでいる候補の番号（-1 は未選択）
     let suggestions = [];
     let activeIndex = -1;
+
+    // IMEで変換中（未確定の文字がある）か
+    let composing = false;
 
     // 候補の id を作る（aria-activedescendant で指すため）
     function optionId(index) {
@@ -113,10 +122,43 @@ export function setupIngredientSuggestions({
 
         listbox.replaceChildren(...items);
         listbox.hidden = false;
+        placeListbox();
+
         input.setAttribute("aria-expanded", "true");
         input.removeAttribute("aria-activedescendant");
 
         announce(suggestions.length);
+    }
+
+    // 候補を出す位置を決める
+    // パソコンでは、IMEの予測変換の窓（入力位置のすぐ下に出る）と重ならないよう上に出す
+    // 上が狭くて画面からはみ出すときは候補を減らし、3件も入らなければ下に出す
+    function placeListbox() {
+        listbox.classList.remove("is-above");
+
+        if (!prefersAbove.matches) {
+            return;
+        }
+
+        listbox.classList.add("is-above");
+
+        // 下に出し直すときに全部の候補へ戻せるよう、減らす前を覚えておく
+        const allSuggestions = [...suggestions];
+        const allItems = [...listbox.children];
+
+        while (
+            listbox.getBoundingClientRect().top < 0
+            && suggestions.length > MIN_SUGGESTIONS_ABOVE
+        ) {
+            suggestions.pop();
+            listbox.lastElementChild.remove();
+        }
+
+        if (listbox.getBoundingClientRect().top < 0) {
+            suggestions = allSuggestions;
+            listbox.replaceChildren(...allItems);
+            listbox.classList.remove("is-above");
+        }
     }
 
     // 候補を選び、最後の食材だけを置きかえる
@@ -125,6 +167,13 @@ export function setupIngredientSuggestions({
 
         if (!suggestion) {
             return;
+        }
+
+        // IMEで変換中（未確定）のまま値を書きかえると、スマホのIMEが
+        // 変換中だった文字（例：「はむ」）を後から入れ直し、選んだ食材名が消えてしまう
+        // 先にフォーカスを外して変換を確定させてから書きかえ、あとでフォーカスを戻す
+        if (composing) {
+            input.blur();
         }
 
         const { before } = splitLastIngredient(input.value);
@@ -139,6 +188,15 @@ export function setupIngredientSuggestions({
 
     // 打つたびに候補を更新する（IMEで変換中の文字にも反応する）
     input.addEventListener("input", update);
+
+    // IMEで変換中かどうかを覚えておく（候補を選ぶときに使う）
+    input.addEventListener("compositionstart", () => {
+        composing = true;
+    });
+
+    input.addEventListener("compositionend", () => {
+        composing = false;
+    });
 
     input.addEventListener("keydown", event => {
         // IMEで変換中のキーは IME の操作なので、候補では使わない
@@ -171,7 +229,11 @@ export function setupIngredientSuggestions({
     });
 
     // 検索欄から離れたら閉じる
-    input.addEventListener("blur", close);
+    // フォーカスが外れると変換は確定するので、compositionend が来ない場合に備えて変換中の印も消す
+    input.addEventListener("blur", () => {
+        composing = false;
+        close();
+    });
 
     // 候補を押した瞬間に検索欄のフォーカスが外れると、クリックが効かなくなるので防ぐ
     listbox.addEventListener("pointerdown", event => {

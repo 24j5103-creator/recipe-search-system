@@ -194,6 +194,20 @@ input:disabled {
     font-size: 0.85rem;
 }
 
+/* パソコン（マウス操作）では候補を検索欄の上に出す
+   IMEの予測変換の窓が入力位置のすぐ下に出て、候補を隠してしまうため */
+@media (hover: hover) and (pointer: fine) {
+    #search-suggestions.is-above {
+        top: auto;
+        bottom: calc(100% + 4px);
+    }
+
+    #search-suggestions [role="option"] {
+        min-height: 40px;
+        padding: 4px 12px;
+    }
+}
+
 /* 画面には出さず、読み上げソフトにだけ伝える */
 .visually-hidden {
     position: absolute;
