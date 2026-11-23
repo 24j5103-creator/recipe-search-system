@@ -26,6 +26,9 @@ export function setupIngredientSuggestions({
     let suggestions = [];
     let activeIndex = -1;
 
+    // IMEで変換中（未確定の文字がある）か
+    let composing = false;
+
     // 候補の id を作る（aria-activedescendant で指すため）
     function optionId(index) {
         return `${listbox.id}-option-${index}`;
@@ -166,6 +169,13 @@ export function setupIngredientSuggestions({
             return;
         }
 
+        // IMEで変換中（未確定）のまま値を書きかえると、スマホのIMEが
+        // 変換中だった文字（例：「はむ」）を後から入れ直し、選んだ食材名が消えてしまう
+        // 先にフォーカスを外して変換を確定させてから書きかえ、あとでフォーカスを戻す
+        if (composing) {
+            input.blur();
+        }
+
         const { before } = splitLastIngredient(input.value);
         input.value = before + suggestion.ingredientName;
 
@@ -178,6 +188,15 @@ export function setupIngredientSuggestions({
 
     // 打つたびに候補を更新する（IMEで変換中の文字にも反応する）
     input.addEventListener("input", update);
+
+    // IMEで変換中かどうかを覚えておく（候補を選ぶときに使う）
+    input.addEventListener("compositionstart", () => {
+        composing = true;
+    });
+
+    input.addEventListener("compositionend", () => {
+        composing = false;
+    });
 
     input.addEventListener("keydown", event => {
         // IMEで変換中のキーは IME の操作なので、候補では使わない
@@ -210,7 +229,11 @@ export function setupIngredientSuggestions({
     });
 
     // 検索欄から離れたら閉じる
-    input.addEventListener("blur", close);
+    // フォーカスが外れると変換は確定するので、compositionend が来ない場合に備えて変換中の印も消す
+    input.addEventListener("blur", () => {
+        composing = false;
+        close();
+    });
 
     // 候補を押した瞬間に検索欄のフォーカスが外れると、クリックが効かなくなるので防ぐ
     listbox.addEventListener("pointerdown", event => {
