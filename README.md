@@ -64,7 +64,7 @@ CSVを `fetch` で読み込むので、`index.html` をダブルクリックで�
 python -m http.server 8000
 ```
 
-ブラウザーで http://localhost:8000/ を開きます。VS Code の Live Server 拡張などでも動きます。
+ブラウザーで https://dag-dag224.github.io/recipe-search-system/ を開きます。VS Code の Live Server 拡張などでも動きます。
 
 GitHub Pages など、静的ファイルを配信できる場所に置けばそのまま公開できます。
 
