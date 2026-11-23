@@ -1,5 +1,5 @@
 import { loadRecipes } from "./recipeData.js";
-import { RecipeSearch } from "./recipeSearch.js";
+import { RecipeSearch, isKatakanaName } from "./recipeSearch.js";
 import { loadAdditions, saveAdditions } from "./recipeStorage.js";
 
 // HTMLの部品を取得する
@@ -70,7 +70,7 @@ function displaySearchResults() {
     }
 
     // 全角カタカナ以外が含まれていれば、検索せずに案内する
-    if (!/^[ァ-ヶー]+$/.test(ingredientName)) {
+    if (!isKatakanaName(ingredientName)) {
         resultMessage.textContent =
             "食材名は全角カタカナで入力してください。";
         return;
@@ -195,29 +195,47 @@ async function initialize() {
     searchButton.disabled = true;
     openAddButton.disabled = true;
 
+    let recipes;
+
     try {
         // CSVから基本データを読み込む
-        const recipes = await loadRecipes();
-
-        // ブラウザーに保存した追加データを読み込む
-        const savedEntries = loadAdditions();
-
-        // 検索用オブジェクトを作り、追加データを復元する
-        recipeSearch = new RecipeSearch(recipes);
-        recipeSearch.applyAdditions(savedEntries);
-
-        searchInput.disabled = false;
-        searchButton.disabled = false;
-        openAddButton.disabled = false;
-
-        statusMessage.textContent =
-            `読み込み完了：食材${recipes.size}種類`;
-
+        recipes = await loadRecipes();
     } catch (error) {
         recipeSearch = null;
         statusMessage.textContent = "データを読み込めませんでした。";
         showError(error);
+        return;
     }
+
+    recipeSearch = new RecipeSearch(recipes);
+
+    searchInput.disabled = false;
+    searchButton.disabled = false;
+
+    try {
+        // ブラウザーに保存した追加データを読み込み、検索用Mapへ復元する
+        const savedEntries = loadAdditions();
+        recipeSearch.applyAdditions(savedEntries);
+    } catch (error) {
+        // 追加データが読めなくても、CSVのデータで検索は続けられるようにする
+        // 壊れた保存データを上書きしないよう、追加ボタンは使えないままにする
+        statusMessage.textContent =
+            `読み込み完了：食材${recipes.size}種類`
+            + "（追加したレシピは読み込めませんでした）";
+        showError(
+            error instanceof Error
+                ? error.message
+                    + "\n元のデータでの検索はできますが、"
+                    + "レシピの追加はできません。"
+                : String(error)
+        );
+        return;
+    }
+
+    openAddButton.disabled = false;
+
+    statusMessage.textContent =
+        `読み込み完了：食材${recipes.size}種類`;
 }
 
 initialize();
