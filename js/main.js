@@ -1,6 +1,11 @@
 import { loadRecipes } from "./recipeData.js";
-import { RecipeSearch, isKatakanaName } from "./recipeSearch.js";
+import {
+    RecipeSearch,
+    isKatakanaName,
+    splitIngredientNames
+} from "./recipeSearch.js";
 import { loadAdditions, saveAdditions } from "./recipeStorage.js";
+import { setupIngredientSuggestions } from "./ingredientSuggestions.js";
 
 // HTMLの部品を取得する
 const searchScreen = document.getElementById("search-screen");
@@ -28,17 +33,6 @@ let recipeSearch = null;
 // 一度に検索できる食材の数と、表示する料理の数
 const MAX_SEARCH_INGREDIENTS = 10;
 const MAX_SEARCH_RESULTS = 50;
-
-// 検索欄の入力を食材名の配列にする
-// 半角・全角カンマ、読点、スペース（全角を含む）で区切り、空の要素と重複を除く
-function splitIngredientNames(text) {
-    const names = text
-        .split(/[,，、\s]+/)
-        .filter(name => name !== "");
-
-    // 入力した順を保ったまま重複を除く
-    return [...new Set(names)];
-}
 
 // 食材名の配列を「『A』『B』」の形の文にする
 function quoteNames(names) {
@@ -270,6 +264,14 @@ async function initialize() {
     }
 
     recipeSearch = new RecipeSearch(recipes);
+
+    // 検索欄に入力候補をつなぐ（追加したレシピの材料も、Mapを通して候補に出る）
+    setupIngredientSuggestions({
+        input: searchInput,
+        listbox: document.getElementById("search-suggestions"),
+        liveRegion: document.getElementById("suggestions-status"),
+        recipeSearch: recipeSearch
+    });
 
     searchInput.disabled = false;
     searchButton.disabled = false;

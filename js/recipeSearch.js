@@ -4,6 +4,38 @@ export function isKatakanaName(text) {
     return /^[ァ-ヶー]+$/.test(text);
 }
 
+// 検索欄で食材を区切る文字（半角・全角カンマ、読点、スペース）
+// 検索と入力候補で同じ区切りを使い、ずれないようにする
+const SEPARATOR_PATTERN = /[,，、\s]+/;
+
+// 検索欄の入力を食材名の配列にする
+// 空の要素と重複を除き、入力した順を保つ
+export function splitIngredientNames(text) {
+    const names = text
+        .split(SEPARATOR_PATTERN)
+        .filter(name => name !== "");
+
+    return [...new Set(names)];
+}
+
+// 検索欄の入力を「最後の食材より前」と「今打っている最後の食材」に分ける
+// 例："キャベツ,にん" → { before: "キャベツ,", last: "にん" }
+export function splitLastIngredient(text) {
+    const match = text.match(/^([\s\S]*[,，、\s])?([^,，、\s]*)$/);
+
+    return {
+        before: match[1] ?? "",
+        last: match[2]
+    };
+}
+
+// ひらがなをカタカナに直す（ぁ〜ゖ → ァ〜ヶ）。それ以外の文字はそのまま
+export function toKatakana(text) {
+    return text.replace(/[ぁ-ゖ]/g, char =>
+        String.fromCharCode(char.charCodeAt(0) + 0x60)
+    );
+}
+
 // 検索結果の並び順を決める
 // 1. 入力した食材を多く使う料理ほど前
 // 2. 同じ数なら、先に入力した食材を使う料理を前（使う食材の番号を前から比べる）
@@ -94,6 +126,56 @@ export class RecipeSearch {
             total: candidates.size,
             results: results
         };
+    }
+
+    // 打っている途中の文字から、登録済みの食材名の候補を返す
+    // ひらがなはカタカナに直して探す。exclude に入れた食材名は候補から外す
+    // 並び順：前から一致 → 途中に含む。同じなら料理の多い順 → 50音順
+    // 戻り値：[{ ingredientName, recipeCount }]
+    suggestIngredients(text, exclude = [], limit = 6) {
+        const keyword = toKatakana(text.trim());
+
+        if (keyword === "") {
+            return [];
+        }
+
+        const excludeSet = new Set(exclude);
+        const candidates = [];
+
+        for (const [ingredientName, recipeNames] of this.recipes) {
+            if (excludeSet.has(ingredientName)) {
+                continue;
+            }
+
+            const position = ingredientName.indexOf(keyword);
+
+            if (position === -1) {
+                continue;
+            }
+
+            candidates.push({
+                ingredientName: ingredientName,
+                recipeCount: recipeNames.length,
+                isPrefix: position === 0
+            });
+        }
+
+        candidates.sort((a, b) => {
+            if (a.isPrefix !== b.isPrefix) {
+                return a.isPrefix ? -1 : 1;
+            }
+
+            if (a.recipeCount !== b.recipeCount) {
+                return b.recipeCount - a.recipeCount;
+            }
+
+            return a.ingredientName.localeCompare(b.ingredientName, "ja");
+        });
+
+        return candidates.slice(0, limit).map(candidate => ({
+            ingredientName: candidate.ingredientName,
+            recipeCount: candidate.recipeCount
+        }));
     }
 
     // 入力を確認し、新しく追加するデータを作る
