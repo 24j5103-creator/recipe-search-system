@@ -29,6 +29,21 @@ export function setupIngredientSuggestions({
     // IMEで変換中（未確定の文字がある）か
     let composing = false;
 
+    // 今表示している候補の中身（同じなら一覧を作り直さないため）
+    let shownKey = "";
+
+    // 指やマウスで押した候補（押してから離すまでに一覧が変わっても選べるようにする）
+    let pressedSuggestion = null;
+
+    // 候補の中身を比べるための文字列にする
+    function suggestionKey(list) {
+        return list
+            .map(suggestion =>
+                `${suggestion.ingredientName}:${suggestion.recipeCount}`
+            )
+            .join(",");
+    }
+
     // 候補の id を作る（aria-activedescendant で指すため）
     function optionId(index) {
         return `${listbox.id}-option-${index}`;
@@ -48,6 +63,7 @@ export function setupIngredientSuggestions({
     // 候補を閉じる
     function close() {
         suggestions = [];
+        shownKey = "";
         activeIndex = -1;
 
         listbox.replaceChildren();
@@ -84,11 +100,23 @@ export function setupIngredientSuggestions({
         // すでに入れた食材は候補に出さない（ひらがなで入れた分もカタカナで比べる）
         const entered = splitIngredientNames(before).map(toKatakana);
 
-        suggestions = recipeSearch.suggestIngredients(
+        const nextSuggestions = recipeSearch.suggestIngredients(
             last,
             entered,
             MAX_SUGGESTIONS
         );
+
+        // 候補が前と同じなら作り直さない
+        // スマホでは、変換中に候補をタップすると指が触れた瞬間に変換が確定して input が起きる。
+        // ここで一覧を作り直すと、指を離したときには別の要素に置きかわっていて click が起きない
+        const nextKey = suggestionKey(nextSuggestions);
+
+        if (!listbox.hidden && nextKey === shownKey) {
+            return;
+        }
+
+        suggestions = nextSuggestions;
+        shownKey = nextKey;
         activeIndex = -1;
 
         if (suggestions.length === 0) {
@@ -99,6 +127,7 @@ export function setupIngredientSuggestions({
         const items = suggestions.map((suggestion, index) => {
             const item = document.createElement("li");
             item.id = optionId(index);
+            item.dataset.index = String(index);
             item.setAttribute("role", "option");
             item.setAttribute("aria-selected", "false");
 
@@ -111,11 +140,6 @@ export function setupIngredientSuggestions({
             count.textContent = `料理${suggestion.recipeCount}件`;
 
             item.append(name, count);
-
-            // タップ・クリックで選ぶ
-            item.addEventListener("click", () => {
-                choose(index);
-            });
 
             return item;
         });
@@ -162,9 +186,8 @@ export function setupIngredientSuggestions({
     }
 
     // 候補を選び、最後の食材だけを置きかえる
-    function choose(index) {
-        const suggestion = suggestions[index];
-
+    // suggestion：選んだ候補（{ ingredientName, recipeCount }）
+    function choose(suggestion) {
         if (!suggestion) {
             return;
         }
@@ -221,7 +244,7 @@ export function setupIngredientSuggestions({
         } else if (event.key === "Enter" && activeIndex !== -1) {
             // 候補を選んでいるときだけ、検索ではなく候補を選ぶ
             event.preventDefault();
-            choose(activeIndex);
+            choose(suggestions[activeIndex]);
         } else if (event.key === "Escape") {
             event.preventDefault();
             close();
@@ -236,8 +259,27 @@ export function setupIngredientSuggestions({
     });
 
     // 候補を押した瞬間に検索欄のフォーカスが外れると、クリックが効かなくなるので防ぐ
+    // 押した候補もここで覚えておく
     listbox.addEventListener("pointerdown", event => {
         event.preventDefault();
+
+        const option = event.target.closest("[role='option']");
+        pressedSuggestion = option
+            ? suggestions[Number(option.dataset.index)] ?? null
+            : null;
+    });
+
+    // タップ・クリックで選ぶ
+    // 押してから離すまでに一覧が作り直されると、click は候補ではなく一覧（ul）で起きる。
+    // そのときは押したときに覚えた候補を使う
+    listbox.addEventListener("click", event => {
+        const option = event.target.closest("[role='option']");
+        const suggestion = option
+            ? suggestions[Number(option.dataset.index)]
+            : pressedSuggestion;
+
+        pressedSuggestion = null;
+        choose(suggestion);
     });
 
     // 検索したら候補を閉じる
